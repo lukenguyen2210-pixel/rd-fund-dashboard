@@ -1,24 +1,27 @@
 import streamlit as st
-import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-import json
+import pandas as pd
 
 st.set_page_config(page_title="R&D Fund Dashboard", layout="wide")
 
 try:
-    # Tự parse JSON thủ công để tránh lỗi PEM của Streamlit
-    creds_dict = json.loads(st.secrets["GCP_JSON_CREDENTIALS"])
-    
-    # Kết nối bằng cách truyền trực tiếp thông tin đã parse
-    conn = st.connection("gsheets", type=GSheetsConnection, **creds_dict)
-    
-    selected_year = st.sidebar.selectbox("📅 Chọn năm:", ["2026", "2025"])
-    
-    # Link file của bro
+    # Kết nối thẳng bằng cách lấy các biến ở cấp ngoài cùng của Secrets
+    conn = st.connection(
+        "gsheets",
+        type=GSheetsConnection,
+        project_id=st.secrets["project_id"],
+        private_key=st.secrets["private_key"],
+        client_email=st.secrets["client_email"],
+        token_uri=st.secrets["token_uri"]
+    )
+
     url = "https://docs.google.com/spreadsheets/d/1xSTOFCGZ2vVEHz5CZV7fP4rpnNnKK9-6guGu5EIMdX0/edit"
     
-    df = conn.read(spreadsheet=url, worksheet=selected_year, header=1)
+    # Lấy dữ liệu năm 2026
+    df = conn.read(spreadsheet=url, worksheet="2026", header=1)
+    
+    st.success("Đã kết nối thành công!")
     st.dataframe(df)
 
 except Exception as e:
-    st.error(f"Lỗi: {e}")
+    st.error(f"Vẫn lỗi: {e}")
