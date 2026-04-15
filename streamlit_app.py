@@ -9,24 +9,30 @@ STANDARD_FEE = 100000
 MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 
 def get_data(year_choice):
-    # Lấy dữ liệu Thu - Range B3:N43 (Bỏ qua dòng header rác của Sheets)
+    # Lấy dữ liệu Thu - Range B3:N43
     url_income = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year_choice}&range=B3:N43"
-    df_inc = pd.read_csv(url_income, header=None) # Đọc không header để tự định nghĩa
+    df_inc = pd.read_csv(url_income, header=None)
     
-    # Gán lại tên cột chuẩn để không bao giờ bị KeyError
+    # Gán tên cột chuẩn
     df_inc.columns = ["Full Name"] + MONTHS
     
-    # Lọc thành viên rác
-    exclude = ["SUM", "Tổng cộng", "Tên NV", "Total", "TOTAL"]
+    # Lọc bỏ dòng đầu nếu bị lỗi gộp nhiều tên (nhiều hơn 5 khoảng trắng)
+    if not df_inc.empty:
+        first_name = str(df_inc.iloc[0, 0])
+        if first_name.count(" ") > 5:
+            df_inc = df_inc.iloc[1:].reset_index(drop=True)
+
+    # Loại bỏ các dòng tiêu đề rác hoặc dòng trống
+    exclude = ["SUM", "Tổng cộng", "Tên NV", "Total", "TOTAL", "nan"]
     df_inc = df_inc.dropna(subset=["Full Name"])
     df_inc = df_inc[~df_inc["Full Name"].astype(str).str.contains('|'.join(exclude), case=False, na=False)]
     
-    # Ép kiểu số cho dữ liệu đóng tiền
+    # Ép kiểu số cho 12 tháng
     for col in MONTHS:
         df_inc[col] = df_inc[col].astype(str).str.replace(',', '').str.replace(' ', '')
         df_inc[col] = pd.to_numeric(df_inc[col], errors='coerce').fillna(0)
     
-    # Lấy dữ liệu Chi (Q3:S43)
+    # Lấy dữ liệu Chi - Range Q3:S43
     url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year_choice}&range=Q3:S43"
     df_ex = pd.read_csv(url_exp, header=None)
     if not df_ex.empty:
@@ -42,17 +48,18 @@ year = st.sidebar.selectbox("Năm tài chính:", ["2026", "2025"])
 try:
     df_members, df_expense = get_data(year)
     
-    # Hiển thị Metrics
+    # Tính toán số liệu tổng
     total_income = df_members[MONTHS].sum().sum()
     total_expense = df_expense['Amount'].sum() if not df_expense.empty else 0
     balance = total_income - total_expense
     
+    # Hiển thị Metrics
     c1, c2, c3 = st.columns(3)
     c1.metric("Tổng Thu", f"{total_income:,.0f} VND")
     c2.metric("Tổng Chi", f"{total_expense:,.0f} VND")
     c3.metric("Số dư hiện tại", f"{balance:,.0f} VND")
 
-    # Biểu đồ tiến độ
+    # Biểu đồ tiến độ đóng quỹ
     st.subheader(f"Tiến độ thu quỹ (Năm {year})")
     monthly_collected = df_members[MONTHS].sum()
     expected_per_month = len(df_members) * STANDARD_FEE
@@ -64,14 +71,12 @@ try:
     fig.update_layout(barmode='stack', height=350, margin=dict(l=0, r=0, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Bảng chi tiết - Nơi bị lỗi KeyError 'Apr'
+    # Bảng chi tiết trạng thái đóng quỹ
     st.subheader("Chi tiết đóng quỹ")
     df_display = df_members.copy()
     for col in MONTHS:
-        # Chốt hạ: Cứ có đóng tiền là tick
         df_display[col] = df_display[col].apply(lambda x: "✔" if x > 0 else "-")
     
-    # Chỉ hiển thị những cột cần thiết
     st.dataframe(df_display[["Full Name"] + MONTHS], use_container_width=True, height=450)
 
     # Nhật ký chi tiêu
@@ -82,4 +87,4 @@ try:
         st.info("Năm này chưa có dữ liệu chi tiêu.")
 
 except Exception as e:
-    st.error(f"Phát sinh lỗi: {e}")
+    st.error(f"Lỗi: {e}")
