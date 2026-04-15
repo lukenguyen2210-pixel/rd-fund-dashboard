@@ -4,75 +4,75 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="R&D Fund Master Pro", layout="wide")
 
-# Link file và cấu hình
 SHEET_ID = "1xSTOFCGZ2vVEHz5CZV7fP4rpnNnKK9-6guGu5EIMdX0"
 STANDARD_FEE = 100000
 MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 
-def get_data(year):
-    # 1. Logic lấy dữ liệu Thu (Range B3:M43 tương đương rawData trong Script)
-    url_income = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year}&range=B3:N43"
-    df_income = pd.read_csv(url_income)
+def get_data(year_choice):
+    # Lấy dữ liệu Thu (B3:N43)
+    url_income = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year_choice}&range=B3:N43"
+    df_inc = pd.read_csv(url_income)
     
-    # Clean dữ liệu Member (Lọc bỏ các dòng tổng cộng)
-    df_members = df_income.dropna(subset=[df_income.columns[0]])
-    exclude_list = ["SUM", "Tổng cộng", "Tên NV", "Total", "TOTAL"]
-    df_members = df_members[~df_members.iloc[:, 0].isin(exclude_list)]
+    # Lọc thành viên
+    exclude = ["SUM", "Tổng cộng", "Tên NV", "Total", "TOTAL"]
+    df_inc = df_inc.dropna(subset=[df_inc.columns[0]])
+    df_inc = df_inc[~df_inc.iloc[:, 0].isin(exclude)]
     
-    # 2. Logic lấy dữ liệu Chi (Range Q3:S43 tương đương getExpenseDetail)
-    url_expense = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year}&range=Q3:S43"
-    df_expense = pd.read_csv(url_expense)
-    df_expense.columns = ['Date', 'Amount', 'Content']
-    df_expense = df_expense.dropna(subset=['Amount'])
-    df_expense = df_expense[df_expense['Amount'] > 0]
+    # Ép kiểu số cho các cột tháng để tránh lỗi so sánh
+    for col in df_inc.columns[1:13]:
+        df_inc[col] = pd.to_numeric(df_inc[col], errors='coerce').fillna(0)
+    
+    # Lấy dữ liệu Chi (Q3:S43)
+    url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={year_choice}&range=Q3:S43"
+    df_ex = pd.read_csv(url_exp)
+    df_ex.columns = ['Date', 'Amount', 'Content']
+    df_ex['Amount'] = pd.to_numeric(df_ex['Amount'], errors='coerce').fillna(0)
+    df_ex = df_ex[df_ex['Amount'] > 0]
 
-    return df_members, df_expense
+    return df_inc, df_ex
 
-# Giao diện Header
 st.title("📊 R&D Fund Master Pro")
-year = st.sidebar.selectbox("Chọn năm tài chính:", ["2026", "2025"])
+year = st.sidebar.selectbox("Năm tài chính:", ["2026", "2025"])
 
 try:
     df_members, df_expense = get_data(year)
     
-    # TÍNH TOÁN LOGIC
+    # Tính toán
     total_income = df_members.iloc[:, 1:13].sum().sum()
     total_expense = df_expense['Amount'].sum()
     balance = total_income - total_expense
     
-    # HIỂN THỊ STAT CARDS
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Tổng Thu (Income)", f"{total_income:,.0f} VND")
-    col2.metric("Tổng Chi (Expense)", f"{total_expense:,.0f} VND", delta_color="inverse")
-    col3.metric("Số dư (Balance)", f"{balance:,.0f} VND")
+    # Hiển thị số liệu nhanh
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tổng Thu", f"{total_income:,.0f} VND")
+    c2.metric("Tổng Chi", f"{total_expense:,.0f} VND")
+    c3.metric("Số dư", f"{balance:,.0f} VND")
 
-    # BIỂU ĐỒ TIẾN ĐỘ (Giống Chart.js trong Index.html)
-    st.subheader(f"Collection Progress - Year {year}")
+    # Biểu đồ tiến độ thu quỹ
+    st.subheader(f"Tiến độ thu quỹ năm {year}")
     monthly_collected = df_members.iloc[:, 1:13].sum()
     expected_per_month = len(df_members) * STANDARD_FEE
     
     fig = go.Figure(data=[
-        go.Bar(name='Collected', x=MONTHS, y=monthly_collected, marker_color='#1e3a8a'),
-        go.Bar(name='Remaining', x=MONTHS, y=[max(0, expected_per_month - v) for v in monthly_collected], marker_color='#f59e0b')
+        go.Bar(name='Đã thu', x=MONTHS, y=monthly_collected, marker_color='#1e3a8a'),
+        go.Bar(name='Còn lại', x=MONTHS, y=[max(0, expected_per_month - v) for v in monthly_collected], marker_color='#f59e0b')
     ])
-    fig.update_layout(barmode='stack', height=400, margin=dict(l=20, r=20, t=20, b=20))
+    fig.update_layout(barmode='stack', height=400, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    # CHI TIẾT ĐÓNG QUỸ (Bảng có Tick xanh giống Script)
-    st.subheader("1. Member Payment Status")
-    # Tạo bảng tick
-    df_tick = df_members.copy()
-    for col in df_tick.columns[1:13]:
-        df_tick[col] = df_tick[col].apply(lambda x: "✔" if x > 0 else "-")
-    st.dataframe(df_tick.iloc[:, 0:13], use_container_width=True)
+    # Bảng trạng thái đóng quỹ (Tick xanh)
+    st.subheader("Chi tiết đóng quỹ")
+    df_status = df_members.copy()
+    for col in df_status.columns[1:13]:
+        df_status[col] = df_status[col].apply(lambda x: "✔" if x > 0 else "-")
+    st.dataframe(df_status.iloc[:, 0:13], use_container_width=True)
 
-    # NHẬT KÝ CHI TIÊU
-    st.subheader("2. Expense Log")
+    # Nhật ký chi tiêu
+    st.subheader("Nhật ký chi tiêu")
     if not df_expense.empty:
         st.table(df_expense)
     else:
-        st.info("Chưa có bản ghi chi tiêu nào.")
+        st.write("Không có dữ liệu chi tiêu.")
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
-    st.info("Bro hãy chắc chắn Tab trong Google Sheets được đặt tên chính xác là '2026' hoặc '2025'.")
