@@ -1,16 +1,15 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 
 st.set_page_config(page_title="R&D Fund Master Pro", layout="wide")
 
 SHEET_ID = "1xSTOFCGZ2vVEHz5CZV7fP4rpnNnKK9-6guGu5EIMdX0"
-# Danh sách tháng khớp chuẩn với thứ tự cột C -> N trong Sheets
-MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
+# Định nghĩa chuẩn 13 cột: Tên + 12 tháng
+COLUMNS_LIST = ["Full Name", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 YEARS_LIST = ["2025", "2026"]
 
 def clean_money(value):
-    if pd.isna(value) or str(value).strip() == "" or str(value).strip() == "-":
+    if pd.isna(value) or str(value).strip() in ["", "-", "0"]:
         return 0
     s = str(value).lower().replace('đ', '').replace(',', '').replace('.', '').replace(' ', '').strip()
     try:
@@ -25,25 +24,31 @@ def fetch_all_data():
     total_g_expense = 0
     
     for y in YEARS_LIST:
-        # Đọc từ B2:N41 để lấy đúng danh sách nhân viên, bỏ qua dòng SUM ở 44
-        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=B2:N41"
-        df_inc = pd.read_csv(url_inc)
+        # Đọc từ B3 để bỏ qua dòng tiêu đề "Apr 2026" gộp ô gây lệch cột
+        # Quét đến dòng 43 để tránh dòng SUM 44
+        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=B3:N43"
+        df_inc = pd.read_csv(url_inc, header=None)
         
-        # Reset lại tên cột cho chuẩn bộ MONTHS
-        df_inc.columns = ["Full Name"] + MONTHS
+        # Ép số lượng cột phải chuẩn 13
+        df_inc = df_inc.iloc[:, :13]
+        df_inc.columns = COLUMNS_LIST
         
-        # Lọc bỏ các dòng tiêu đề thừa nếu có
-        df_inc = df_inc[df_inc["Full Name"].notna()]
-        df_inc = df_inc[~df_inc["Full Name"].str.contains("Full Name|Tên NV|SUM|Tổng", case=False, na=False)]
+        # Xử lý làm sạch tên
+        df_inc = df_inc.dropna(subset=["Full Name"])
+        # Loại bỏ các dòng tiêu đề rác hoặc dòng gộp dính chữ "Nguyễn Trung Hiếu" dài loằng ngoằng
+        df_inc = df_inc[~df_inc["Full Name"].astype(str).str.contains("Tên NV|SUM|Tổng|Total", case=False, na=False)]
         
-        # Ép kiểu số cho các tháng
-        for col in MONTHS:
+        # FIX LỖI GỘP TÊN: Nếu tên dài bất thường (chứa tên 3 người gộp lại), ta bỏ qua dòng đó
+        df_inc = df_inc[df_inc["Full Name"].astype(str).map(len) < 35]
+        
+        # Ép kiểu số cho 12 cột tháng
+        for col in COLUMNS_LIST[1:]:
             df_inc[col] = df_inc[col].apply(clean_money)
         
-        current_y_inc = df_inc[MONTHS].sum().sum()
+        current_y_inc = df_inc.iloc[:, 1:].sum().sum()
         
-        # Load Chi tiêu từ cột Q đến S
-        url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=Q3:S41"
+        # Load Chi tiêu (Cột Q:S)
+        url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=Q3:S43"
         df_ex = pd.read_csv(url_exp, header=None)
         current_y_exp = 0
         if not df_ex.empty:
@@ -62,28 +67,26 @@ try:
     data_store, grand_balance = fetch_all_data()
     st.title("🚀 R&D Fund Master Dashboard")
 
-    # Banner Tổng số dư (2 năm)
+    # Banner Tổng số dư (Thực tế = Thu 2 năm - Chi 2 năm)
     st.markdown(f"""
     <div style="background-color:#1e3a8a; padding:30px; border-radius:15px; border-left: 10px solid #f59e0b; margin-bottom:30px">
-        <p style="color:white; margin:0; font-size:16px; font-weight:bold; opacity:0.8">TỔNG SỐ DƯ QUỸ HIỆN TẠI (2025 + 2026)</p>
+        <p style="color:white; margin:0; font-size:16px; font-weight:bold; opacity:0.8">SỐ DƯ QUỸ HIỆN TẠI (2025 + 2026)</p>
         <h1 style="color:white; margin:0; font-size:64px; font-weight:bold">{grand_balance:,.0f} <span style="font-size:24px">VND</span></h1>
     </div>
     """, unsafe_allow_html=True)
 
-    year_choice = st.sidebar.selectbox("Chọn năm báo cáo:", YEARS_LIST[::-1])
+    year_choice = st.sidebar.selectbox("Năm tài chính:", YEARS_LIST[::-1])
     curr = data_store[year_choice]
     
-    # Chỉ số năm hiện tại
     c1, c2, c3 = st.columns(3)
     c1.metric(f"Tổng thu {year_choice}", f"{curr['y_inc']:,.0f} VND")
     c2.metric(f"Tổng chi {year_choice}", f"{curr['y_exp']:,.0f} VND")
     c3.metric(f"Dư năm {year_choice}", f"{(curr['y_inc'] - curr['y_exp']):,.0f} VND")
 
-    # Bảng chi tiết
     with st.expander(f"Bảng chi tiết đóng quỹ {year_choice}", expanded=True):
         df_display = curr["income_df"].copy()
-        # Hiển thị tick xanh nếu có tiền
-        for col in MONTHS:
+        # Biến số tiền thành dấu check cho dễ nhìn
+        for col in COLUMNS_LIST[1:]:
             df_display[col] = df_display[col].apply(lambda x: "✔" if x > 0 else "-")
         
         df_display.index = range(1, len(df_display) + 1)
