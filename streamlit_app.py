@@ -4,7 +4,6 @@ import pandas as pd
 st.set_page_config(page_title="R&D Fund Master Pro", layout="wide")
 
 SHEET_ID = "1xSTOFCGZ2vVEHz5CZV7fP4rpnNnKK9-6guGu5EIMdX0"
-# Danh sách tháng khớp chuẩn thứ tự C->N
 MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"]
 YEARS_LIST = ["2025", "2026"]
 
@@ -17,27 +16,21 @@ def clean_money(value):
     except:
         return 0
 
-@st.cache_data(ttl=30) # Giảm TTL để load nhanh hơn khi debug
+@st.cache_data(ttl=60)
 def fetch_all_data():
     all_data = {}
     total_g_income = 0
     total_g_expense = 0
     
     for y in YEARS_LIST:
-        # Range B3:N43 để lấy từ tên đến hết 12 tháng, né dòng SUM 44
-        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=B3:N43"
+        # CHIẾN THUẬT MỚI: Dùng SQL Query để ép Google Sheets trả về đúng cột B và C->N
+        # Select Col2 (B), Col3..Col14 (C..N) 
+        # Where Col2 is not null and not like 'SUM'
+        query = "select Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10, Col11, Col12, Col13, Col14 where Col2 is not null and not Col2 contains 'SUM' and not Col2 contains 'Tên NV' and not Col2 contains 'Đoàn Thị'"
+        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&tq={query}&range=A3:N43"
         
-        # Đọc dữ liệu và không lấy dòng đầu làm header để tránh lệch cột
-        df_raw = pd.read_csv(url_inc, header=None)
-        
-        # Chỉ lấy 13 cột đầu tiên (Cột B + 12 tháng) để tránh cột Unnamed rác
-        df_inc = df_raw.iloc[:, :13].copy()
+        df_inc = pd.read_csv(url_inc)
         df_inc.columns = ["Full Name"] + MONTHS
-        
-        # Loại bỏ dòng trống hoặc dòng có tên quá dài (do gộp ô Nhung-Hiếu-Long)
-        df_inc = df_inc.dropna(subset=["Full Name"])
-        df_inc = df_inc[df_inc["Full Name"].astype(str).map(len) < 35]
-        df_inc = df_inc[~df_inc["Full Name"].astype(str).str.contains("Tên NV|SUM|Tổng cộng", case=False, na=False)]
         
         # Chuyển đổi tiền
         for col in MONTHS:
@@ -45,7 +38,7 @@ def fetch_all_data():
             
         y_inc_val = df_inc[MONTHS].sum().sum()
         
-        # Load Chi tiêu (Cột Q đến S)
+        # Load Chi tiêu (Cột Q đến S) - Lấy từ dòng 3
         url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=Q3:S43"
         df_ex = pd.read_csv(url_exp, header=None)
         y_exp_val = 0
@@ -62,11 +55,11 @@ def fetch_all_data():
         
     return all_data, (total_g_income - total_g_expense)
 
-# --- UI GIỮ NGUYÊN ---
 try:
     data_store, grand_balance = fetch_all_data()
     st.title("🚀 R&D Fund Master Dashboard")
 
+    # Banner Số dư tổng
     st.markdown(f"""
     <div style="background-color:#1e3a8a; padding:30px; border-radius:15px; border-left: 10px solid #f59e0b; margin-bottom:30px">
         <p style="color:white; margin:0; font-size:16px; font-weight:bold; opacity:0.8">TỔNG SỐ DƯ QUỸ (2025 + 2026)</p>
@@ -74,15 +67,15 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    year_choice = st.sidebar.selectbox("Chọn năm:", YEARS_LIST[::-1])
+    year_choice = st.sidebar.selectbox("Năm tài chính:", YEARS_LIST[::-1])
     curr = data_store[year_choice]
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("Thu năm nay", f"{curr['y_inc']:,.0f} VND")
-    c2.metric("Chi năm nay", f"{curr['y_exp']:,.0f} VND")
-    c3.metric("Còn lại", f"{(curr['y_inc'] - curr['y_exp']):,.0f} VND")
+    c1.metric("Tổng thu", f"{curr['y_inc']:,.0f} VND")
+    c2.metric("Tổng chi", f"{curr['y_exp']:,.0f} VND")
+    c3.metric("Số dư năm", f"{(curr['y_inc'] - curr['y_exp']):,.0f} VND")
 
-    with st.expander(f"Chi tiết đóng quỹ {year_choice}", expanded=True):
+    with st.expander(f"Danh sách đóng quỹ {year_choice}", expanded=True):
         res = curr["income_df"].copy()
         for m in MONTHS:
             res[m] = res[m].apply(lambda x: "✔" if x > 0 else "-")
@@ -92,4 +85,3 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
-    st.info("Bro kiểm tra lại quyền chia sẻ link Google Sheets nhé!")
