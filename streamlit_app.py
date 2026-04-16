@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from urllib.parse import quote # Thêm thư viện này để mã hóa URL
 
 st.set_page_config(page_title="R&D Fund Master Pro", layout="wide")
 
@@ -23,22 +24,25 @@ def fetch_all_data():
     total_g_expense = 0
     
     for y in YEARS_LIST:
-        # CHIẾN THUẬT MỚI: Dùng SQL Query để ép Google Sheets trả về đúng cột B và C->N
-        # Select Col2 (B), Col3..Col14 (C..N) 
-        # Where Col2 is not null and not like 'SUM'
-        query = "select Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10, Col11, Col12, Col13, Col14 where Col2 is not null and not Col2 contains 'SUM' and not Col2 contains 'Tên NV' and not Col2 contains 'Đoàn Thị'"
-        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&tq={query}&range=A3:N43"
+        # Câu lệnh SQL để lọc dữ liệu sạch ngay từ Google Sheets
+        raw_query = "select Col2, Col3, Col4, Col5, Col6, Col7, Col8, Col9, Col10, Col11, Col12, Col13, Col14 where Col2 is not null and not Col2 contains 'SUM' and not Col2 contains 'Tên NV' and not Col2 contains 'Đoàn Thị'"
         
+        # MÃ HÓA CÂU QUERY: Biến khoảng trắng thành %20 để URL hợp lệ
+        encoded_query = quote(raw_query)
+        
+        # Tạo URL hoàn chỉnh với Query đã mã hóa
+        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&tq={encoded_query}&range=A3:N43"
+        
+        # Load dữ liệu thu
         df_inc = pd.read_csv(url_inc)
         df_inc.columns = ["Full Name"] + MONTHS
         
-        # Chuyển đổi tiền
         for col in MONTHS:
             df_inc[col] = df_inc[col].apply(clean_money)
             
         y_inc_val = df_inc[MONTHS].sum().sum()
         
-        # Load Chi tiêu (Cột Q đến S) - Lấy từ dòng 3
+        # Load Chi tiêu (Cột Q đến S)
         url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=Q3:S43"
         df_ex = pd.read_csv(url_exp, header=None)
         y_exp_val = 0
@@ -55,11 +59,11 @@ def fetch_all_data():
         
     return all_data, (total_g_income - total_g_expense)
 
+# --- GIAO DIỆN GIỮ NGUYÊN ---
 try:
     data_store, grand_balance = fetch_all_data()
     st.title("🚀 R&D Fund Master Dashboard")
 
-    # Banner Số dư tổng
     st.markdown(f"""
     <div style="background-color:#1e3a8a; padding:30px; border-radius:15px; border-left: 10px solid #f59e0b; margin-bottom:30px">
         <p style="color:white; margin:0; font-size:16px; font-weight:bold; opacity:0.8">TỔNG SỐ DƯ QUỸ (2025 + 2026)</p>
@@ -75,7 +79,7 @@ try:
     c2.metric("Tổng chi", f"{curr['y_exp']:,.0f} VND")
     c3.metric("Số dư năm", f"{(curr['y_inc'] - curr['y_exp']):,.0f} VND")
 
-    with st.expander(f"Danh sách đóng quỹ {year_choice}", expanded=True):
+    with st.expander(f"Bảng chi tiết đóng quỹ {year_choice}", expanded=True):
         res = curr["income_df"].copy()
         for m in MONTHS:
             res[m] = res[m].apply(lambda x: "✔" if x > 0 else "-")
