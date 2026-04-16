@@ -8,7 +8,7 @@ MONTHS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", 
 
 # --- PHẦN QUAN TRỌNG: KHAI BÁO CÁC NĂM ---
 # Nếu bro add thêm 2027 mà nó không tự hiện, hãy điền thêm vào danh sách dưới đây:
-MANUAL_YEARS = ["2025", "2026", "2027"] 
+MANUAL_YEARS = ["2025", "2026", "2027","2028"] 
 
 def clean_money(v):
     if pd.isna(v) or str(v).strip() in ["", "-", "0", "0.0"]: return 0
