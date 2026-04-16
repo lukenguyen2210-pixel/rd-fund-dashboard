@@ -18,16 +18,18 @@ def load_data():
     db = {}
     g_inc, g_exp = 0, 0
     for y in YEARS:
-        # --- FIX CỨNG DẢI Ô B3:N43 ĐỂ LẤY DANH SÁCH VÀ TIỀN THU ---
-        # range=B3:N43 đảm bảo không bao giờ dính dòng 1, 2 hay dòng 44+
-        url_inc = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=B3:N43"
-        df_inc = pd.read_csv(url_inc, header=None)
+        # Tải toàn bộ sheet về, không dùng &range trong URL để tránh lỗi kết nối
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}"
+        df_raw = pd.read_csv(url, header=None)
         
-        # Đảm bảo đủ 13 cột (Tên + 12 tháng)
-        df_inc = df_inc.iloc[:, :13]
+        # --- TRÍCH XUẤT CỨNG VÙNG B3:N43 ---
+        # iloc[row_start:row_end, col_start:col_end]
+        # Hàng 3 (index 2) đến hàng 43 (index 43)
+        # Cột B (index 1) đến cột N (index 14)
+        df_inc = df_raw.iloc[2:43, 1:14].copy()
         df_inc.columns = ["Full Name"] + MONTHS
         
-        # Chỉ giữ lại dòng có tên người, loại bỏ các dòng trống trong khoảng B3:B43
+        # Loại bỏ dòng trống trong list B3:B43
         df_inc = df_inc.dropna(subset=["Full Name"])
         df_inc["Full Name"] = df_inc["Full Name"].astype(str).str.strip()
         df_inc = df_inc[df_inc["Full Name"] != ""]
@@ -36,17 +38,13 @@ def load_data():
             df_inc[m] = df_inc[m].apply(clean_money)
         y_inc = df_inc[MONTHS].sum().sum()
         
-        # --- FIX CỨNG DẢI Ô Q3:S43 ĐỂ LẤY CHI TIÊU ---
-        url_exp = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={y}&range=Q3:S43"
-        df_ex = pd.read_csv(url_exp, header=None)
-        y_exp = 0
-        if not df_ex.empty:
-            df_ex = df_ex.iloc[:, :3]
-            df_ex.columns = ['Date', 'Amount', 'Explanation']
-            df_ex['Amount'] = df_ex['Amount'].apply(clean_money)
-            df_ex = df_ex[df_ex['Amount'] > 0].dropna(subset=['Explanation'])
-            y_exp = df_ex['Amount'].sum()
-            
+        # --- TRÍCH XUẤT CỨNG VÙNG Q3:S43 (Chi tiêu) ---
+        df_ex = df_raw.iloc[2:43, 16:19].copy()
+        df_ex.columns = ['Date', 'Amount', 'Explanation']
+        df_ex['Amount'] = df_ex['Amount'].apply(clean_money)
+        df_ex = df_ex[df_ex['Amount'] > 0].dropna(subset=['Explanation'])
+        y_exp = df_ex['Amount'].sum()
+        
         db[y] = {"inc_df": df_inc, "exp_df": df_ex, "y_inc": y_inc, "y_exp": y_exp}
         g_inc += y_inc
         g_exp += y_exp
@@ -56,7 +54,7 @@ def load_data():
 try:
     data, balance = load_data()
     
-    # UI Banner
+    # Banner tổng số dư
     st.markdown(f"""
     <div style="background-color:#1e3a8a; padding:30px; border-radius:15px; border-left: 10px solid #f59e0b; margin-bottom:20px">
         <p style="color:white; margin:0; font-size:16px; font-weight:bold; opacity:0.8">TỔNG SỐ DƯ QUỸ (2025 + 2026)</p>
@@ -64,7 +62,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    y_sel = st.sidebar.selectbox("Chọn năm:", YEARS[::-1])
+    y_sel = st.sidebar.selectbox("Năm xem báo cáo:", YEARS[::-1])
     curr = data[y_sel]
     
     c1, c2, c3 = st.columns(3)
@@ -76,10 +74,12 @@ try:
         res = curr["inc_df"].copy()
         for m in MONTHS:
             res[m] = res[m].apply(lambda x: "✔" if x > 0 else "-")
+        
+        # Reset index để làm STT chuẩn
+        res = res.reset_index(drop=True)
         res.index = range(1, len(res) + 1)
         res.index.name = "STT"
-        # Căn lề trái cho tên và STT theo ý bro
         st.dataframe(res, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Lỗi: {e}")
+    st.error(f"Lỗi rồi bro: {e}")
